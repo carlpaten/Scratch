@@ -1,2 +1,2 @@
 # Scratch
-Past programs kept here for posterity
+Past programs kept here for posterity.

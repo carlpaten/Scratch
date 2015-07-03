@@ -1,0 +1,1129 @@
+{.include SRL/SRL.scar}
+//{.include SRL/SRL/misc./Smart.scar}
+{.include SRL/SRL/misc/Debug.scar}
+
+//58 agility and Ghosts Ahoy! required to run script.
+//Start anywhere with 9 buckets, 9 pots and an ectophial in your inventory.
+//Bones have to be visible on first bank page.
+//If you are not using SMART, you probably will have to press Compile twice before
+//the script starts working. This is normal !
+
+var
+  Stranger : Boolean;
+  tmpCTS, x, y, T, i : Integer;
+
+procedure Setup_DeclarePlayers;
+begin
+  if not LoggedIn then Exit;
+  HowManyPlayers := 1;
+  NumberOfPlayers(HowManyPlayers);
+  CurrentPlayer := 0; //Don't touch
+  With Players[0] do
+  begin
+    Name :='';
+    Pass :='';
+    Nick :='';//3-4 lowercase letters from your nickname
+    Pin := '';
+    Active:=True;
+    Strings[0] := 'big'; //Type of bones used. valid arguments are 'big' and 'dragon'.
+    Integers[0] := 0; //How many loads to do before stopping?
+    Integers[1] := 0; // How many loads to do before taking a break?
+    BoxRewards := ['xp', 'lamp', 'imy', 'oins', 'apphire', 'ssence'];
+  end;
+// Declaring Player 2 for multiplayer, you can do this for any amount of players
+  {With Players[1] do
+  begin
+    Name :='';
+    Pass :='';
+    Nick :='';//3-4 lowercase letters from your nickname
+    Pin := '';
+    Active:=True;
+    Strings[0] := ''; //Type of bones used. valid arguments are 'big' and 'dragon'.
+    Integers[0] := 0; //How many loads to do before stopping?
+    Integers[1] := 0; // How many loads to do before taking a break?
+    BoxRewards := ['xp', 'lamp', 'imy', 'oins', 'apphire', 'ssence'];
+  end;}
+end;
+
+procedure Misc_Proggy;
+begin
+  Writeln('Cigue''s Mighty Ectofuntus Script!')
+  Writeln('')
+  Writeln('You have ran ' + IntToStr(Players[CurrentPlayer].Integers[0]) + ' loads !');
+  case Players[CurrentPlayer].Strings[0] of
+    'dragon' : Players[CurrentPlayer].Integers[1] := 2016 * Players[CurrentPlayer].Integers[0];
+    'big' : Players[CurrentPlayer].Integers[1] := 540 * Players[CurrentPlayer].Integers[0];
+  end;
+  Writeln('That gave you ' + IntToStr(Players[CurrentPlayer].Integers[1]) + ' xp.');
+  Writeln('Script ran for a total of ' + TimeRunning);
+end;
+
+function Math_MMCornerSearch (orientation : String) : TBox;//This returns half the minimap, directed at orientation; useful in object finding
+var
+  Rotation : Integer;
+
+begin
+  if not LoggedIn then Exit;
+  Rotation := 0;
+  case RS_GetCompassAngleDegrees of
+    -1 : Exit;
+    46..145 : Rotation := 1;
+    146..225 : Rotation := 2;
+    226..315 : Rotation := 3;
+  end;
+  case lowercase(Orientation) of
+    'west', 'w' : Inc(Rotation);
+    'south', 's' : IncEx(Rotation, 2);
+    'east', 'e' : IncEx(Rotation, 3);
+  end;
+  if Rotation > 3 then DecEx(Rotation, 4);
+  Writeln(IntToStr(Rotation));
+  case Rotation of
+    0 : Result := IntToBox(MMX1, MMY1, MMX2, MMCY);
+    1 : Result := IntToBox(MMX1, MMY1, MMCX, MMY2);
+    2 : Result := IntToBox(MMX1, MMCY, MMX2, MMY2);
+    3 : Result := IntToBox(MMCX, MMY1, MMX2, MMY2);
+  end;
+end;
+
+function Math_PointCoords (point1: TPoint; xp, yp : integer): TPoint;//This returns the point xp, yp from point1 if compass was looking north. Use main screen center and minimap center as point1.
+begin
+  Result := Point(point1.x + xp * Round(Cos(rs_GetCompassAngleRadians)) + yp * Round(Sin(rs_GetCompassAngleRadians)), point1.y - xp * Round(Sin(rs_GetCompassAngleRadians)) + yp * Round(Cos(rs_GetCompassAngleRadians)));
+end;
+
+procedure Misc_Antiban;
+begin
+  if not LoggedIn then Exit;
+  FindNormalRandoms;
+  LampSkill := 'prayer';
+  case random(200) of
+  1: RandomRClick;
+  2..5: begin
+          HoverSkill('prayer', False);
+          GameTab(Tab_Inv);
+        end;
+  6..8: PickUpMouse;
+  9..12: RandomMovement;
+  13: BoredHuman;
+  14..15: ExamineInv;
+  16..19: LevelUp;
+  20..29: IdleTime(500+Random(500),500, 0.4); //Leeched from Munk Clayftner
+  30..35: SleepAndMoveMouse(500+random(3000));
+  36: Sleep(Random(30000));
+  37: begin
+        GameTab(tab_Friends);
+        Wait(1000 + Random(500));
+        GameTab(tab_Magic);
+      end;
+  38..100: begin
+            MMouse(Random(MIX2-MIX1)+MIX1, Random(MIY2-MIY1)+MIY1, 0, 0);
+            Wait(500 + random(1000));
+            MMouse(Random(MSX2-MSX1)+MSX1, Random(MSY2-MSY1)+MSY1, 0, 0);
+            Wait(250 + random(250));
+          end;
+  end;
+end;
+
+procedure Misc_Error(Info : String);
+begin
+  if not LoggedIn then Exit;
+  Writeln('Error : ' + Info);
+  if not LoggedIn then Exit;
+  if BankScreen then CloseBank;
+  Wait(500 + Random(500));
+  Players[CurrentPlayer].Active := False;
+  If LoggedIn then Logout;
+  Misc_Proggy;
+  RandomNextPlayer(False);
+end;
+
+procedure Misc_Flag(WaitMore : Boolean);//Flag lagged too much so I used this.
+begin
+  Wait(400+Random(200));
+  while ((FlagDistance >= Random(4)) and FindColor(x, y, FlagColor, MMX1, MMY1, MMX2, MMY2)) do
+    Wait(100 + Random(50));
+  if WaitMore then Wait(1400+Random(400));
+end;
+
+function Misc_DTMCheck(DTMName, BoxName : String; Rotated : Boolean) : Boolean;//Loads DTM, checks for DTM, frees DTM.
+var
+  DTM : Integer;
+  Box : TBox;
+  Exploded : TStringArray;
+
+begin
+  case lowercase(DTMName) of
+    'pot' : DTM := DTMFromString('78DA633CC8C4C0A002C440C0C800014DD1960' +
+       'CFC487CC66D40796554350C0CA87CC69D40BE16013520BB7409A8394' +
+       '38439E78970CF76205F96087314F0AB0100DB7008A6');
+    'bones' : case lowercase(Players[CurrentPlayer].Strings[0]) of
+                'dragon' : DTM := DTMFromString('78DA63DCCBC4C0B091910104202403C3DC69D' +
+                  '3184490F88C2035EB51D5303030A1F019D7629A83A1662B90BF85809' +
+                  'A8340FE2E026A4E02F9DB08A83940849B41E6EC26A0663D61BB004AE' +
+                  '20F17');
+                'big' : DTMFromString('78DA631460666048656200014606089837633' +
+                  'A033F129F910DA82613550D03032A9F9115A8268D801A51A09A7C026' +
+                  'A40EEC920A0461AA8268B801A61A09A64026AB88950234DD85F00471' +
+                  'E066A');
+              end;
+    'banker' : DTM := DTMFromString('78DA63FCCCC4C0C0C9C8800CFEFC61627003D' +
+       '220D1FF40C0F80EBF1A10000097BE0A7A');
+    'guard1' : DTM := DTMFromString('78DA632C656260E86400034608C5109718C26' +
+       '003E5FF0702C66AA09A3E54357FFE3031C821F119F3885003B26B' +
+       '3AAA9AD4AC18B85D200000F4800F06');
+    'guard2' : DTM := DTMFromString('78DA6364616660506464400661717E0C1A401' +
+    'A26CAC80E542385AAE6CF1F26063764351C40356A04D40860DA95981' +
+    '58962170014F307B4');
+    'bucket' : DTM := DTMFromString('78DA633CCCC4C0B0899101042024038397851' +
+       '8033F129F7117A61A060626143EE36E207F0701357B80FCFD04D41C0' +
+       '1F20F1250739A0873CE00F9BB08A8394BD85F0022510CC9');
+    'phial' : DTM := DTMFromString('78DA63DCC7C8C05005C448C07F42020317900' +
+       '689FE0702C65D405621AA1A06062630091365DC0164D5105003B2' +
+       'AB91809AC344987304C82A23A0663F9095825F0D00523B0DE0');
+    'token' : DTM := DTMFromString('78DA633CC2C4C0F08F910104202403836AA82' +
+       '9033F129F712B50CD2F54350C0C4C287CB01A34310C35FB807C56026' +
+       'A8E03F91C04D45C00F21909A83903E4B3E15703007D490855');
+  end;
+  case lowercase(BoxName) of
+    'inv', 'inventory' : Box := IntToBox(MIX1, MIY1, MIX2, MIY2);
+    'mini' : Box := IntToBox(MMX1, MMY1, MMX2, MMY2);
+    'main' : Box := IntToBox(MSX1, MSY1, MSX2, MSY2);
+    'minin', 'miniw', 'minis', 'minie' :
+      begin
+        Exploded := srl_Explode(lowercase(BoxName), 'mini')
+        Box := Math_MMCornerSearch(Exploded[1]);
+      end;
+  end;
+  Writeln(IntToStr(Box.x1) + ', ' + IntToStr(Box.y1) + ', ' + IntToStr(Box.x2) + ', ' + IntToStr(Box.y2) + ' DTM Search Area for DTM ' + DTMName);
+  case Rotated of
+    True : Result := DTMRotated(DTM, x, y, Box.x1, Box.y1, Box.x2, Box.y2);
+    False : Result := FindDTM(DTM, x, y, Box.x1, Box.y1, Box.x2, Box.y2);
+  end;
+  FreeDTM(DTM);
+end;
+
+function Main_Ectophial : Boolean;//Teleports to Ectofuntus.
+
+begin
+  if not LoggedIn then Exit;
+  if Misc_DTMCheck('phial', 'inv', False) then
+  begin
+    Wait(150+Random(300));
+    MouseItem(CoordsToItem(x, y), True);
+    Result := True;
+    Wait(8700+Random(1300));
+  end else
+    Misc_Error('Couldn''t find Ectophial in inventory');
+end;
+
+function ToBank_FindGuardDTM : Boolean;//Uses DTMs to find barrier guards.
+begin
+  if not LoggedIn then Exit;
+  if not Misc_DTMCheck('Guard1', 'MiniS', True) then
+    begin
+      if not Misc_DTMCheck('Guard2', 'MiniS', True) then
+        Misc_Error('Couldn''t find GuardPointDTM');
+    end;
+  Writeln('Found Guards DTM!');
+  Mouse(Math_PointCoords(Point(x, y), 0, 3).x, Math_PointCoords(Point(x, y), 0, 3).y, 3, 3, True);
+  Misc_Flag(True);
+  Result := True;
+  Wait(1600+Random(200));
+end;
+
+function ToBank_ThroughBarrier : Boolean;
+var
+  BarrierPoints : TPointArray;
+  BarrierBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  FindColorsSpiralTolerance(MSCX, MSCY, BarrierPoints, 9418899, MSX1, MSY1, MSX2, MSY2, 10);
+  Writeln(IntToStr(Length(BarrierPoints)));
+  if Length(BarrierPoints) < 5 then
+  begin
+    ToBank_FindGuardDTM;
+    FindColorsSpiralTolerance(MSCX, MSCY, BarrierPoints, 9418899, MSX1, MSY1, MSX2, MSY2, 10);
+  end;
+  if (Length(BarrierPoints) > 5) then
+  begin
+    BarrierBoxes := TPAtoATPAEx(BarrierPoints, 10, 10);
+    DebugATPA(BarrierBoxes, '');
+    MMouse(MiddleTPA(BarrierBoxes[0]).x, (MiddleTPA(BarrierBoxes[0]).y-10), 10, 10);
+    Wait(350+Random(150));
+    if IsUpText('arr') then
+    begin
+      GetMousePos(x, y);
+      Mouse(x, y, 0, 0, False);
+      if WaitOption('to', (300+Random(200))) then
+      begin
+        Wait(1500+Random(350));
+        Result := True;
+        Exit;
+      end else
+        Misc_Error('Couldn''t find option to pay toll at barrier');
+    end else
+    begin
+      if IsUpText('ua') then
+      begin
+        GetMousePos(x, y);
+        Mouse(x, y, 0, 0, True);
+        Wait(800+Random(400));
+        if not ClickContinue(True, True) then Misc_Error('Couldn''t find chatbox at door');
+        Wait(1500+Random(350));
+        Result := True;
+        Exit;
+      end else
+        Misc_Error('Couldn''t find the barrier or guards');
+    end;
+  end else
+    Misc_Error('Couldn''t find Barrier color');
+end;
+
+function ToBank_TPAWalk(x, y : integer; Direction : String) : Boolean;
+var
+  StartSearchPoint : TPoint;
+  SearchAreaBox : TBox;
+  RoadColorPoints : TPointArray;
+  RoadColorBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  SearchAreaBox := Math_MMCornerSearch(Direction);
+  Writeln(IntToStr(SearchAreaBox.x1) + ', ' + IntToStr(SearchAreaBox.y1) + ', ' + IntToStr(SearchAreaBox.x2) + ', ' + IntToStr(SearchAreaBox.y2) + ' SearchAreaBox');
+  StartSearchPoint := Math_PointCoords(Point(MMCX, MMCY), x, y);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(3.62, 1.12);
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, RoadColorPoints, 5727066, SearchAreaBox.x1, SearchAreaBox.y1, SearchAreaBox.x2, SearchAreaBox.y2, 5);
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  if Length(RoadColorPoints) > 50 then
+  begin
+    RoadColorBoxes := TPAtoATPAEx(RoadColorPoints, 7, 7);
+    SortATPAFromFirstPoint(RoadColorBoxes, StartSearchPoint);
+    DebugATPA(RoadColorBoxes, '');
+    Mouse(RoadColorBoxes[0][0].x, RoadColorBoxes[0][0].y, 5, 5, True);
+    Misc_Flag(False);
+    Result := True;
+  end else
+  begin
+    Writeln('Couldn''t find colour, run again (Bank)');
+    Result := False;
+  end;
+end;
+
+function ToBank_FindBankerDTM : Boolean;//Uses DTMs to find banker dots.
+begin
+  if not LoggedIn then Exit;
+  Wait(500+random(200));
+  if Misc_DTMCheck('Banker', 'Mini', True) then
+  begin
+    Mouse(Math_PointCoords(Point(x, y), 0, -6).x, Math_PointCoords(Point(x, y), 0, -6).y, 3, 3, True);
+    Result := True;
+    Misc_Flag(True);
+    Wait(400+Random(400));
+  end else
+    Misc_Error('Couldn''t find BankerPointDTM');
+end;
+
+function Bank_OpenGhostBank : Boolean;
+var
+  TwoSqSouth, GhostPoint : TPoint;
+  GhostPoints : TPointArray;
+  GhostBoxes : T2DPointArray;
+  HighGhost, GhostNeckySlot : Integer;
+  BankBox : TBox;
+
+begin
+  if not LoggedIn then Exit;
+  MarkTime(T);
+  tmpCTS := GetColorToleranceSpeed;
+  repeat
+    if BankScreen then
+    begin
+      Result := True;
+      ColorToleranceSpeed(tmpCTS);
+      SetColorSpeed2Modifiers(0.2, 0.2);
+      Exit;
+    end;
+    TwoSqSouth := Math_PointCoords(Point(MSCX, MSCY), 0, 100);
+    ColorToleranceSpeed(2);
+    SetColorSpeed2Modifiers(0.08, 0.76);
+    FindColorsSpiralTolerance(TwoSqSouth.x, TwoSqSouth.y, GhostPoints, 8635287 {or 10277806}, MSX1, MSY1, MSX2, MSY2, 25);
+    GhostBoxes := TPAtoATPAEx(GhostPoints, 10, 10);
+    HighGhost:=High(GhostBoxes);
+    for i := 0 to HighGhost do
+    begin
+      if BankScreen then
+      begin
+        Result := True;
+        Break;
+      end;
+      GhostPoint:=MiddleTPA(GhostBoxes[i]);
+      MMouse(GhostPoint.x, GhostPoint.y, 5, 5);
+      Wait(175+Random(50));
+      if IsUpText('ank') then
+      begin
+        GetMousePos(GhostPoint.x, GhostPoint.y);
+        Mouse(GhostPoint.x, GhostPoint.y, 0, 0, False);
+        Wait(1000 + Random(100));
+        ChooseOptionEx('Bank', 'action');
+        Wait(1500+Random(200));
+        if not Stranger then
+        begin
+          if FindTextTPA(clBlack, 0, MCX1, MCY1, MCX2, MCY2, 'gestures', NPCChars, Nothing) then
+          begin
+            ClickContinue(True, True);
+            Wait(500+Random(100));
+            if PinScreen then
+            begin
+              InPin(Players[CurrentPlayer].Pin);
+              Wait(250+Random(100));
+            end;
+            if not BankScreen then
+              Misc_Error('Couldn''t find BankScreen after opening bank');
+            SearchBank('ghostspeak');
+            Wait(150 + Random(100));
+            if FindColorTolerance(x, y, 2182767, 50, 50, 100, 100, 3) then
+            begin //the next three lines are leeched from SRL Withdraw procedure by Starblaster100, Town, Wizzup? and Narcle
+              BankBox := BankIndexToMSBox(1);
+              MouseBox(BankBox.X1 + 5, BankBox.Y1 + 5, BankBox.X2 - 5, BankBox.Y2 - 5, 1);
+              Wait(RandomRange(50, 150));
+              CloseBank;
+              if (GetCurrentTab <> Tab_Inv) then GameTab(Tab_Inv);
+              if FindColorTolerance(x, y, 2182767, MIX1, MIY1, MIX2, MIY2, 3) then
+              begin
+                GhostNeckySlot := CoordsToItem(x, y)
+                InvMouse(GhostNeckySlot, 1);
+              end else
+                Misc_Error('Something went wrong while equipping GS.');
+              Continue;
+            end else
+              Stranger := True;
+          end;
+        end;
+        if PinScreen then InPin(Players[CurrentPlayer].Pin);
+        if (GhostNeckySlot <> 0) and ExistsItem(GhostNeckySlot) then InvMouse(GhostNeckySlot, 1);
+      end;
+    end;
+  until BankScreen or (TimeFromMark(T) > 40000);
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+end;
+
+procedure Bank_Withdraw;//Bones have to be visible on first bank page !
+var
+  BBox : TBox;
+
+begin
+  if not LoggedIn then Exit;
+  if not BankScreen then
+  begin
+    Misc_Error('Couldn''t find BankScreen');
+  end;
+  Wait(RandomRange(500, 1000));
+  if Misc_DTMCheck('Token', 'Inv', False) then
+    Deposit(CoordsToItem(x, y), CoordsToItem(x, y), True);
+  if Misc_DTMCheck('Bones', 'Main', False) then
+  begin //The following is leeched from the Withdraw function in SRL
+    BBox := BankIndexToMSBox(BankPointToBankIndex(MSTPointToBankPoint(Point(x,y))));
+    MouseBox(BBox.X1 + 5, BBox.Y1 + 5, BBox.X2 - 5, BBox.Y2 - 5, 2);
+    case Random(25) of
+      0..23 : WaitOptionMulti(['Withdraw-All', 'draw-All'], 300 + Random(100));
+      24 : begin
+             if (WaitOptionMulti(['Withdraw-X', 'draw-X'], 300 + Random(100))) then
+             begin
+               Wait(500 + Random(700));
+               TypeSend(IntToStr(9+Random(10000)));
+             end;
+           end;
+    end;
+  end else
+      Misc_Error('Ran out of bones');
+  CloseBank;
+  Wait(400+Random(1000));
+end;
+
+function ToGrinder_TPALadder : Boolean;
+var
+  StartSearchPoint : TPoint;
+  SearchAreaBox : TBox;
+  LadderPoints : TPointArray;
+  LadderBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  SearchAreaBox := Math_MMCornerSearch('E');
+  Writeln(IntToStr(SearchAreaBox.x1) + ', ' + IntToStr(SearchAreaBox.y1) + ', ' + IntToStr(SearchAreaBox.x2) + ', ' + IntToStr(SearchAreaBox.y2) + ' SearchAreaBox');
+  StartSearchPoint := Math_PointCoords(Point(MMCX, MMCY), 22, 3);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, LadderPoints, 602459, SearchAreaBox.x1, SearchAreaBox.y1, SearchAreaBox.x2, SearchAreaBox.y2, 10);
+  if Length(LadderPoints) > 7 then
+  begin
+    LadderBoxes := TPAtoATPAEx(LadderPoints, 3, 3);
+    SortATPAFromFirstPoint(LadderBoxes, StartSearchPoint);
+    x := Math_PointCoords(LadderBoxes[0][0], -3, 1).x;
+    y := Math_PointCoords(LadderBoxes[0][0], -3, 1).y;
+    DebugATPA(LadderBoxes, '');
+    Writeln(IntToStr(x) + ', ' + IntToStr(y) + ' ClickPoint');
+    Mouse(x, y, 3, 3, True);
+    Misc_Flag(True);
+    Result := True;
+  end else
+  begin
+    Writeln('Couldn''t find colour, run again (Ladder)');
+    Result := False;
+  end;
+end;
+
+function ToGrinder_UpStairs : Boolean;
+var
+  StartSearchPoint : TPoint;
+  StairsPoints : TPointArray;
+  StairsBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), 50, 0);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, StairsPoints, 1913896, MSX1, MSY1, MSX2, MSY2, 3);
+  if Length(StairsPoints) > 50 then
+  begin
+    StairsBoxes := TPAtoATPAEx(StairsPoints, 60, 60);
+    DebugATPA(StairsBoxes, '');
+    for i:= 0 to High(StairsBoxes) do
+    begin
+      MMouse(MiddleTPA(StairsBoxes[i]).x, MiddleTPA(StairsBoxes[i]).y, 10, 10);
+      Wait(200+Random(300));
+      if IsUpText('air') then
+      begin
+        GetMousePos(x, y);
+        Writeln(IntToStr(x) + ', ' + IntToStr(y) + ' ClickPoint');
+        Mouse(x, y, 0, 0, True);
+        Misc_Flag(True);
+        Result := True;
+        Exit;
+      end;
+    end;
+    if not Result then Misc_Error('Couldn''t find stairs uptext (Upstairs)');
+  end else
+  begin
+    Misc_Error('Couldn''t find colour, run again (Upstairs)');
+  end;
+  Wait(600+Random(400));
+end;
+
+function ToGrinder_TPAGrinder : Boolean;
+var
+  StartSearchPoint : TPoint;
+  SearchAreaBox : TBox;
+  GrinderPoints : TPointArray;
+  GrinderBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  SearchAreaBox := Math_MMCornerSearch('W');
+  Writeln(IntToStr(SearchAreaBox.x1) + ', ' + IntToStr(SearchAreaBox.y1) + ', ' + IntToStr(SearchAreaBox.x2) + ', ' + IntToStr(SearchAreaBox.y2) + ' SearchAreaBox');
+  StartSearchPoint := Math_PointCoords(Point(MMCX, MMCY), -27, -5);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(8.80, 2.18);
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, GrinderPoints, 3752510, SearchAreaBox.x1, SearchAreaBox.y1, SearchAreaBox.x2, SearchAreaBox.y2, 2);
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  if Length(GrinderPoints) > 15 then
+  begin
+    GrinderBoxes := TPAtoATPAEx(GrinderPoints, 6, 6);
+    SortATPAFromFirstPoint(GrinderBoxes, StartSearchPoint);
+    DebugATPA(GrinderBoxes, '');
+    Mouse(Math_PointCoords(GrinderBoxes[0][0], -3, 1).x, Math_PointCoords(GrinderBoxes[0][0], -3, 1).y, 4, 4, True);
+    Misc_Flag(True);
+    Result := True;
+  end else
+  begin
+    Writeln('Couldn''t find colour, run again');
+    Result := False;
+  end;
+  Wait(400+Random(300));
+end;
+
+function Grinder_Operate : Boolean;
+var
+  HopperCoords : TPoint;
+  HopperPoints : TPointArray;
+  HopperBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  HopperCoords := Math_PointCoords(Point(MSCX, MSCY), 100, -50);
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.10, 0.58);
+  FindColorsSpiralTolerance(HopperCoords.x, HopperCoords.y, HopperPoints, 3690039, MSX1, MSY1, MSX2, MSY2, 8);
+  HopperBoxes := TPAtoATPAEx(HopperPoints, 25, 25);
+  for i := 0 to High(HopperBoxes) do
+  begin
+    HopperCoords := MiddleTPA(HopperBoxes[i]);
+    MMouse(HopperCoords.x, HopperCoords.y, 10, 10);
+    Wait(175+Random(50));
+    if IsUpText('opp') then
+    begin
+      GetMousePos(HopperCoords.x, HopperCoords.y);
+      Mouse(HopperCoords.x, HopperCoords.y, 0, 0, True);
+      Result := True;
+      Break;
+    end;
+  end;
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  MarkTime(T);
+  while (CountColor(9342612, MIX1, MIY1, MIX2, MIY2) <> 9) and (TimeFromMark(T) < 100000) do
+  begin
+    Wait(1500+Random(1500));
+    case Random(10) of
+      0 : Misc_Antiban;
+    end;
+  end;
+  if CountColorTolerance(7697786, MIX1, MIY1, MIX2, MIY2, 51) > 650 then
+    Result := True
+  else
+    Misc_Error('Couldn''t find bonemeals after operating grinder');
+end;
+
+function ToPool_TPAHole : Boolean;
+var
+  StartSearchPoint : TPoint;
+  SearchAreaBox : TBox;
+  HolePoints : TPointArray;
+  HoleBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(45.84, 50.01);
+  SearchAreaBox := Math_MMCornerSearch('W');
+  Writeln(IntToStr(SearchAreaBox.x1) + ', ' + IntToStr(SearchAreaBox.y1) + ', ' + IntToStr(SearchAreaBox.x2) + ', ' + IntToStr(SearchAreaBox.y2) + ' SearchAreaBox');
+  StartSearchPoint := Math_PointCoords(Point(MMCX, MMCY), -27, 12);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, HolePoints, 394754, SearchAreaBox.x1, SearchAreaBox.y1, SearchAreaBox.x2, SearchAreaBox.y2, 2);
+  DebugTPA(HolePoints, '');
+  if Length(HolePoints) > 5 then
+  begin
+    HoleBoxes := TPAtoATPAEx(HolePoints, 5, 5);
+    SortATPAFromFirstPoint(HoleBoxes, StartSearchPoint);
+    DebugATPA(HoleBoxes, '');
+    Writeln(IntToStr(HoleBoxes[0][0].x) + ', ' + IntToStr(HoleBoxes[0][0].y) + ' ClickPoint');
+    Mouse(HoleBoxes[0][0].x, HoleBoxes[0][0].y, 3, 3, True);
+    Misc_Flag(True);
+    Result := True;
+  end else
+  begin
+    Writeln('Couldn''t find colour, run again (TPAHole)');
+    Result := False;
+  end;
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  ColorToleranceSpeed(tmpCTS);
+end;
+
+function ToPool_TrapDoor : Boolean;
+var
+  TrapdoorPoints : TPointArray;
+  TrapdoorBoxes : T2DPointArray;
+  ClickPoint, StartSearchPoint : TPoint;
+
+begin
+  if not LoggedIn then Exit;
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), -50, 0);
+  if (CountColor(855309, MSX1, MSY1, MSX2, MSY2) < 100) then
+  begin
+    MakeCompass('N');
+    if (CountColor(855309, MSX1, MSY1, MSX2, MSY2) > 100) then
+      FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, TrapdoorPoints, 855309, MSX1, MSY1, MSX2, MSY2, 0)
+    else
+    begin
+      tmpCTS := GetColorToleranceSpeed;
+      ColorToleranceSpeed(2);
+      SetColorSpeed2Modifiers(0.73, 0.36);
+      if CountColorTolerance(3032109, MSX1, MSY1, MSX2, MSY2, 1) < 100 then
+      begin
+        MakeCompass('N');
+        if (CountColorTolerance(3032109, MSX1, MSY1, MSX2, MSY2, 1) > 100) then
+          FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, TrapdoorPoints, 3032109, MSX1, MSY1, MSX2, MSY2, 1)
+        else
+          Misc_Error('Couldn''t find trapdoor color');
+      end else
+        FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, TrapdoorPoints, 3032109, MSX1, MSY1, MSX2, MSY2, 1);
+    end;
+  end else
+    FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, TrapdoorPoints, 855309, MSX1, MSY1, MSX2, MSY2, 0);
+  TrapdoorBoxes := TPAtoATPAEx(TrapdoorPoints, 20, 20);
+  DebugATPA(TrapdoorBoxes, '');
+  For i:= 0 to High(TrapdoorBoxes) do
+  begin
+    ClickPoint := MiddleTPA(TrapdoorBoxes[i]);
+    MMouse(MiddleTPA(TrapdoorBoxes[i]).x, MiddleTPA(TrapdoorBoxes[i]).y, 10, 10);
+    Wait(300+Random(300));
+    if IsUpText('pen') then
+    begin
+      GetMousePos(x,y);
+      Mouse(x, y, 0, 0, True);
+      Wait(2500+Random(500));
+      FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, TrapdoorPoints, 855309, MSX1, MSY1, MSX2, MSY2, 0);
+      TrapdoorBoxes := TPAtoATPAEx(TrapdoorPoints, 20, 20);
+      DebugATPA(TrapdoorBoxes, '');
+      Continue;
+    end;
+    if IsUpText('rap') then
+      GetMousePos(x,y);
+      Mouse(x, y, 0, 0, True);
+      Wait(400+Random(200));
+      ColorToleranceSpeed(tmpCTS);
+      SetColorSpeed2Modifiers(0.2, 0.2);
+      MarkTime(T);
+    while (CountColor(1514761, MSX1, MSY1, MSX2, MSY2) < 600) and (TimeFromMark(T) < 8000) do
+      Wait(400+Random(400));
+    if CountColor(1514761, MSX1, MSY1, MSX2, MSY2) > 600 then
+    begin
+      Result := True;
+      Break;
+    end;
+  end;
+  Wait(400+Random(400));
+end;
+
+function ToPool_WeatheredWall : Boolean;
+var
+  WallPoints : TPointArray;
+  WallBoxes : T2DPointArray;
+  StartSearchPoint : TPoint;
+
+begin
+  if not LoggedIn then Exit;
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), 75, 0);
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.06, 0.50);
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, WallPoints, 2638398, MSX1, MSY1, MSX2, MSY2, 10)
+  if Length(WallPoints) < 200 then Misc_Error('Couldn''t find weathered wall color');
+  WallBoxes := TPAtoATPAEx(WallPoints, 10, 10);
+  DebugATPA(WallBoxes, '');
+  for i := 0 to High(WallBoxes) do
+  begin
+    MMouse(MiddleTPA(WallBoxes[i]).x, MiddleTPA(WallBoxes[i]).y, 5, 5);
+    Wait(400+Random(300));
+    if IsUpText('ump') then
+    begin
+      GetMousePos(x,y);
+      Mouse(x, y, 0, 0, True);
+      Break;
+    end;
+  end;
+  MarkTime(T);
+  while (CountColorTolerance(2638398, (MSX1+(MSX1+MSCX)/2), (MSY1+(MSY1+MSCY)/2), (MSX1+(MSX2+MSCX)/2), (MSY1+(MSY2+MSCY)/2), 10) > 250) and (TimeFromMark(T) < 10000) do
+    Wait(300+Random(400));
+  SetColorSpeed2Modifiers(0.13, 1.23);
+  if not IsUpText('airs') then
+  begin
+    MMouse(Math_PointCoords(Point(MSCX, MSCY), 50, 0).x, Math_PointCoords(Point(MSCX, MSCY), 50, 0).y, 10, 10);
+    Wait(200+Random(300));
+  end;
+  if IsUpText('airs') then
+  begin
+    GetMousePos(x, y);
+    Mouse(x, y, 0, 0, True);
+  end else
+    Misc_Error('Couldn''t find stairs uptext(Weathered Wall)');
+  MarkTime(T);
+  while not FindColorTolerance(x, y, 6474319, MSX1, MSY1, MSX2, MSY2, 33) and (TimeFromMark(T) < 10000) do
+    Wait(200+Random(300));
+  if FindColorTolerance(x, y, 6474319, MSX1, MSY1, MSX2, MSY2, 33) then Result := True;
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  Wait(400+Random(400));
+end;
+
+function ToPool_CrossPool : Boolean;
+begin
+  if not LoggedIn then Exit;
+  Mouse(Math_PointCoords(Point(MMCX, MMCY), 45, 0).x, Math_PointCoords(Point(MMCX, MMCY), 50, 0).y, 8, 8, True);
+  Misc_Flag(True);
+  Result := True;
+  Wait(400+Random(400));
+end;
+
+function ToPool_DownStairs : Boolean;
+var
+  StartSearchPoint : TPoint;
+  StairsPoints : TPointArray;
+  StairsBoxes : T2DPointArray;
+  
+begin
+  if not LoggedIn then Exit;
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), -70, 0);
+  MMouse(StartSearchPoint.x, StartSearchPoint.y + 20, 8, 8);
+  Wait(200+Random(200));
+  if IsUpText('air') then
+  begin
+    GetMousePos(x, y);
+    Mouse(x, y, 0, 0, true);
+    if CountColor(12778951, MSX1, MSY1, MSX2, MSY2) > 10000 then
+    Result := True;
+    Wait(400+Random(400));
+    Exit;
+  end else
+  begin
+    MakeCompass('E');
+    SetAngle(False);
+    Wait(200+Random(200));
+    if IsUpText('air') then
+    begin
+      GetMousePos(x, y);
+      Mouse(x, y, 0, 0, true);
+      if CountColor(12778951, MSX1, MSY1, MSX2, MSY2) > 10000 then
+      Result := True;
+      Wait(400+Random(400));
+      Exit;
+    end;
+    StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), 0, 75);
+    tmpCTS := GetColorToleranceSpeed;
+    ColorToleranceSpeed(2);
+    SetColorSpeed2Modifiers(0.42, 0.42);
+    FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, StairsPoints, 2702642, MSX1, MSY1, MSX2, MSY2, 2);
+    if Length(StairsPoints) > 50 then
+    begin
+      StairsBoxes := TPAtoATPAEx(StairsPoints, 50, 50);
+      DebugATPA(StairsBoxes, '');
+      for i := 0 to High(StairsBoxes) do
+      begin
+        MMouse(MiddleTPA(StairsBoxes[i]).x, MiddleTPA(StairsBoxes[i]).y, 20, 20);
+        Wait(300+Random(300));
+        if IsUpText('air') then
+        begin
+          GetMousePos(x, y);
+          Mouse(x, y, 0, 0, true);
+          MarkTime(T);
+          while (CountColor(12778951, MSX1, MSY1, MSX2, MSY2) < 10000) and (TimeFromMark(T) < 10000) do
+            Wait(300+Random(300));
+          if CountColor(12778951, MSX1, MSY1, MSX2, MSY2) > 10000 then
+          begin
+            Result := True;
+            Break;
+          end else
+            Misc_Error('Couldn''t find slime pool color');
+        end;
+      end;
+    end else
+      Misc_Error('Couldn''t find Stairs color');
+  end;
+  Wait(400+Random(400));
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+end;
+
+function Pool_FillBucket : Boolean;
+var
+  StartSearchPoint : TPoint;
+  SlimePoints : TPointArray;
+  SlimeBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  if not Misc_DTMCheck('Bucket', 'Inv', False) then Misc_Error('Bucket not found in inventory');
+  MouseItem(CoordsToItem(x, y), True);
+  Wait(200+Random(400));
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), -50, 0);
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, SlimePoints, 12778951, (MSX1+2*MSCX/3), (MSY1+2*MSCY/3), (MSX1+2*MSX2/3), (MSY1+2*MSY2/3), 0);
+  if Length(SlimePoints) > 1000 then
+  begin
+    SlimeBoxes := TPAtoATPAEx(SlimePoints, 25, 25);
+    DebugATPA(SlimeBoxes, '');
+    SortATPAFromFirstPoint(SlimeBoxes, StartSearchPoint);
+    MMouse(SlimeBoxes[0][0].x, SlimeBoxes[0][0].y, 10, 10);
+    Wait(300+Random(300));
+    if IsUpText('ool') then
+    begin
+      GetMousePos(x, y);
+      Mouse(x, y, 0, 0, true);
+      MarkTime(T);
+      while (CountColor(1879832, MIX1, MIY1, MIX2, MIY2) <> 450) and (TimeFromMark(T) < 30000) do
+        Wait(300+Random(300));
+      if CountColor(1879832, MIX1, MIY1, MIX2, MIY2) = 450 then
+        Result := True
+      else
+        Misc_Error('Wrong slime color count in inventory');
+    end else
+      Misc_Error('Couldn''t find pool uptext');
+  end else
+    Misc_Error('Couldn''t find pool color');
+end;
+
+procedure Raw_Grinder;
+begin
+  ToGrinder_TPALadder;
+  Misc_Antiban;
+  ToGrinder_Upstairs;
+  Misc_Antiban;
+  ToGrinder_TPAGrinder;
+  Misc_Antiban;
+  Grinder_Operate;
+  Misc_Antiban;
+  Main_Ectophial;
+  Misc_Antiban;
+end;
+
+procedure Raw_Pool;
+begin
+  ToPool_TPAHole;
+  Misc_Antiban;
+  ToPool_TrapDoor;
+  Misc_Antiban;
+  ToPool_WeatheredWall;
+  Misc_Antiban;
+  ToPool_CrossPool;
+  Misc_Antiban;
+  ToPool_DownStairs;
+  Misc_Antiban;
+  Pool_FillBucket;
+  Misc_Antiban;
+  Main_Ectophial;
+  Misc_Antiban;
+end;
+
+function Main_Worship : Boolean;
+var
+  j : integer;
+  StartSearchPoint : TPoint;
+  FuntPoints, DisciplePoints : TPointArray;
+  FuntBoxes, DiscipleBoxes : T2DPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), 0, 80);
+  Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.12, 3.72);
+  FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, FuntPoints, 9956511, MSX1, MSY1, MSX2, MSY2, 6);
+  ColorToleranceSpeed(tmpCTS);
+  SetColorSpeed2Modifiers(0.2, 0.2);
+  if Length(FuntPoints) > 50 then
+  begin
+    FuntBoxes := TPAtoATPAEx(FuntPoints, 30, 30);
+    DebugATPA(FuntBoxes, '');
+    for i := 0 to High(FuntBoxes) do
+    begin
+      MMouse(MiddleTPA(FuntBoxes[i]).x, MiddleTPA(FuntBoxes[i]).y, 10, 10);
+      Wait(300+Random(400));
+      if IsUpText('funt') then
+      begin
+        GetMousePos(x, y);
+        for i:= 0 to RandomRange(8, 10) do
+        begin
+          Wait(200+Random(500));
+          Mouse(x, y, 0, 0, True);
+        end;
+        Misc_Flag(True);
+        Result := True;
+        Break;
+      end;
+    end;
+    if not Result then Misc_Error('Couldn''t find ectofuntus uptext');
+  end else
+    Misc_Error('Couldn''t find colour (Worship)');
+  Wait(200+Random(400));
+  Misc_Antiban;
+  Mouse(Math_PointCoords(Point(MMCX, MMCY), 0, RandomRange(18, 22)).x, Math_PointCoords(Point(MMCX, MMCY), 0, RandomRange(18, 22)).y, 5, 5, True);
+  Misc_Flag(True);
+  tmpCTS := GetColorToleranceSpeed;
+  ColorToleranceSpeed(2);
+  SetColorSpeed2Modifiers(0.02, 0.93);
+  FindColorsSpiralTolerance(x, y, DisciplePoints, 9944994, MSX1, MSY1, MSX2, MSY2, 18)
+  DiscipleBoxes := TPAtoATPAEx(DisciplePoints, 30, 30);
+  DebugATPA(DiscipleBoxes, '');
+  if Length(DisciplePoints) < 25 then
+  begin
+    x := MMCX;
+    y := MMCY;
+    FindColorSpiralTolerance(x, y, 195836, MMX1, MMY1, MMX2, MMY2, 0);
+    Mouse(x, y, 5, 5, True);
+    Misc_Flag(True);
+    FindColorsSpiralTolerance(x, y, DisciplePoints, 9944994, MSX1, MSY1, MSX2, MSY2, 18);
+    DiscipleBoxes := TPAtoATPAEx(DisciplePoints, 30, 30);
+    DebugATPA(DiscipleBoxes, '');
+  end;
+  while j < 3 do
+  begin
+    for i := 0 to High(DiscipleBoxes) do
+    begin
+      MMouse(MiddleTPA(DiscipleBoxes[i]).x, MiddleTPA(DiscipleBoxes[i]).y, 10, 10);
+      Wait(300+Random(400));
+      if IsUpText('disc') then
+      begin
+        GetMousePos(x, y);
+        Mouse(x, y, 0, 0, False);
+        WaitOption('Coll', (200+Random(300)));
+        Exit;
+      end;
+    end;
+    inc(j);
+    Writeln('j''d');
+    FindColorsSpiralTolerance(x, y, DisciplePoints, 9944994, MSX1, MSY1, MSX2, MSY2, 18)
+    DiscipleBoxes := TPAtoATPAEx(DisciplePoints, 30, 30);
+    DebugATPA(DiscipleBoxes, '');
+    Wait(1000+Random(2000));
+  end;
+  Writeln('Better luck next time');
+end;
+
+procedure Main_Bank;
+begin
+  if not LoggedIn then Exit;
+  ToBank_FindGuardDTM;
+  Misc_Antiban;
+  ToBank_ThroughBarrier;
+  Misc_Antiban;
+  if not ToBank_TPAWalk(20, 70, 'S') then
+  begin
+    MakeCompass('N');
+    if not ToBank_TPAWalk(20, 70, 'S') then
+      Misc_Error('Got lost walking to bank');
+  end;
+  if not ToBank_TPAWalk(20, 70, 'S') then
+  begin
+    MakeCompass('N');
+    if not ToBank_TPAWalk(20, 70, 'S') then
+      Misc_Error('Got lost walking to bank');
+  end;
+  if not ToBank_TPAWalk(50, 40, 'E') then
+  begin
+    MakeCompass('N');
+    if not ToBank_TPAWalk(50, 40, 'E') then
+      Misc_Error('Got lost walking to bank');
+  end;
+  Misc_Antiban;
+  ToBank_FindBankerDTM;
+  Misc_Antiban;
+  Bank_OpenGhostBank;
+  Misc_Antiban;
+  Bank_Withdraw;
+  Misc_Antiban;
+  Main_Ectophial;
+  Misc_Antiban;
+end;
+
+procedure Main_CollectRawMaterials;
+begin
+  Case RBool of
+    True :
+    begin
+      Raw_Pool;
+      Raw_Grinder;
+    end;
+    False :
+    begin
+      Raw_Grinder;
+      Raw_Pool;
+    end;
+  end;
+end;
+
+procedure Setup_Locate;
+var
+  StartSearchPoint : TPoint;
+  FuntPoints : TPointArray;
+
+begin
+  if not LoggedIn then Exit;
+  SymbolAccuracy := 0.5;
+  if Misc_DTMCheck('Bones', 'inv', False) then
+  begin
+    StartSearchPoint := Math_PointCoords(Point(MSCX, MSCY), 0, 80);
+    Writeln(IntToStr(StartSearchPoint.x) + ', ' + IntToStr(StartSearchPoint.y) + ' StartSearchPoint');
+    tmpCTS := GetColorToleranceSpeed;
+    ColorToleranceSpeed(2);
+    SetColorSpeed2Modifiers(0.12, 3.72);
+    FindColorsSpiralTolerance(StartSearchPoint.x, StartSearchPoint.y, FuntPoints, 9956511, MSX1, MSY1, MSX2, MSY2, 6);
+    ColorToleranceSpeed(tmpCTS);
+    SetColorSpeed2Modifiers(0.2, 0.2);
+    if Length(FuntPoints) < 50 then
+      Main_Ectophial;
+    Exit;
+  end;
+  if FindSymbol(x, y, 'bank') then
+  begin
+    ToBank_FindBankerDTM;
+    Bank_OpenGhostBank;
+    Bank_Withdraw;
+    Main_Ectophial;
+  end else
+  begin
+    Main_Ectophial;
+    Main_Bank;
+  end;
+end;
+
+procedure Main_TakeBreak;
+begin
+  if not LoggedIn then Exit;
+  begin
+    writeln('Taking break, logging out');
+    LogOut;
+    Misc_Proggy;
+    Sleep(100000+Random(500000));
+    LogInPlayer;
+  end;
+end;
+
+procedure Main_FullRun;
+begin
+  if not LoggedIn then LoginPlayer;
+  RandomAngle(True);
+  repeat
+    MarkTime(T);
+    Setup_Locate;
+    Misc_Antiban;
+    Main_CollectRawMaterials;
+    Main_Worship;
+    Main_Bank;
+    Misc_Proggy;
+    Inc(Players[CurrentPlayer].Integers[3]);
+    Inc(Players[CurrentPlayer].Integers[2]);
+    if TimeFromMark(T) > 600000 then TerminateScript;
+    until (Players[CurrentPlayer].Integers[3] >= Players[CurrentPlayer].Integers[0]) or (Players[CurrentPlayer].Integers[2] >= Players[CurrentPlayer].Integers[1]);
+    if (Players[CurrentPlayer].Integers[2] >= Players[CurrentPlayer].Integers[1]) then
+  begin
+    Writeln('Made enough runs, switching player to inactive !');
+    LogOut;
+    Misc_Proggy;
+    Players[CurrentPlayer].Active := False;
+    RandomNextPlayer(False);
+  end;
+  if (Players[CurrentPlayer].Integers[3] >= Players[CurrentPlayer].Integers[0]) then
+  begin
+    if HowManyPlayers > 1 then
+    begin
+      Writeln('Made enough runs, switching players !');
+      LogOut;
+      Misc_Proggy;
+      RandomNextPlayer(False);
+    end else
+    begin
+      Writeln('Taking break !');
+      Main_TakeBreak;
+    end;
+  end;
+end;
+
+begin
+  SetupSRL;
+  ClearDebug;
+  Setup_DeclarePlayers;
+  While not RSReady do Wait(200+random(500));
+  if not LoggedIn then LoginPlayer;
+  if round(rs_getcompassangledegrees) < 0 then TerminateScript;
+  repeat Main_FullRun until AllPlayersInactive;
+end.

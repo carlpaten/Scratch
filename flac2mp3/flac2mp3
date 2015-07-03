@@ -1,0 +1,6 @@
+#!/bin/bash
+
+shopt -s nullglob
+for f in "$@" ; do
+  ffmpeg -i "$f" -codec:a libmp3lame -b:a 320k "${f%.*}.mp3"
+done
